@@ -1,4 +1,5 @@
 import os
+import shutil
 from typing import cast
 
 import streamlit as st
@@ -60,6 +61,24 @@ init_session_key("upload_success_message", "")
 init_session_key("clear_success_message", "")
 
 
+def clear_knowledge_base() -> None:
+    """Clear the active knowledge base, with a fallback for older manager versions."""
+    clear_method = getattr(vector_store_manager, "clear", None)
+    if callable(clear_method):
+        clear_method()
+        return
+
+    st.session_state["vector_store"] = None
+    persist_path = app_config.vector_store_path
+    try:
+        if os.path.isdir(persist_path):
+            shutil.rmtree(persist_path)
+        elif os.path.exists(persist_path):
+            os.remove(persist_path)
+    except Exception as exc:
+        raise RuntimeError("清空知识库失败，请稍后重试。") from exc
+
+
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/000000/ai.png", width=80)
     st.title("AI学习助手")
@@ -78,7 +97,6 @@ with st.sidebar:
         2. 「RAG精准问答」：LCEL架构，严格基于文档回答
         3. 「Agent智能助手」：LangGraph预构建Agent，支持复杂任务
         """)
-    st.markdown("💡 适配Streamlit Cloud部署 | 2024版")
 
 st.title("🤖 我的AI学习助手")
 
@@ -104,7 +122,7 @@ with tab_upload:
     if vector_store_manager.is_ready:
         if st.button("🗑️ 清空知识库", type="secondary", use_container_width=True):
             try:
-                vector_store_manager.clear()
+                clear_knowledge_base()
                 st.session_state["rag_messages"] = []
                 st.session_state["agent_messages"] = []
                 st.session_state["upload_widget_version"] += 1
