@@ -24,3 +24,8 @@ venv/
 # Temporary files
 *.tmp
 temp_*
+
+# Local app data
+saved_vector_store/
+.pytest_cache/
+.venv.pyorg.bak/

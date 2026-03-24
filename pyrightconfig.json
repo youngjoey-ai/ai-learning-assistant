@@ -1,0 +1,13 @@
+{
+    "venvPath": ".",
+    "venv": ".venv",
+    "include": [
+        "."
+    ],
+    "typeCheckingMode": "basic",
+    "reportTypedDictNotRequiredAccess": "none",
+    "reportOptionalSubscript": "none",
+    "reportOptionalMemberAccess": "none",
+    "reportArgumentType": "none",
+    "reportCallIssue": "none"
+}
