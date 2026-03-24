@@ -1,69 +1,55 @@
 """
 LangChain pipeline construction module.
 
-Provides factory functions that build:
-  - RAG chain (LCEL architecture) for knowledge-grounded Q&A
-  - ReAct agent (LangGraph) for complex multi-step tasks
+Provides factory helpers for:
+  - RAG question answering
+  - Knowledge-grounded agent task execution
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from langchain.agents import create_agent
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
 from langchain_core.tools import Tool
-from langgraph.prebuilt import create_react_agent
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
-    from langchain_core.vectorstores import VectorStoreRetriever
+    from langchain_core.retrievers import BaseRetriever
 
-logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+AGENT_SYSTEM_PROMPT = """你是一个基于用户已上传知识库执行任务的学习助手。
+
+【工作规则】
+1. 只要用户的问题与知识库、文档、学习笔记、项目总结、概念解释、提炼重点、归纳总结有关，优先使用 `knowledge_answer`。
+2. 如果需要查看原始片段、逐条摘录或核对来源，再使用 `knowledge_query`。
+3. 不要在未检索知识库前，就直接回复“请提供内容”“请补充材料”“请说明具体内容”。
+4. 如果工具返回“知识库中无相关信息”，再明确告诉用户知识库里没有对应内容。
+5. 回答使用中文，尽量直接完成任务；如果基于知识库作答，结尾尽量附上信息来源。"""
 
 RAG_SYSTEM_PROMPT = """\
 你是一个严格依据知识库回答问题的助手。
 
-【规则】
-1. 只允许使用参考文档中的内容回答，禁止编造。
-2. 如果参考文档中没有相关内容，直接回复：「知识库中无相关信息」。
-3. 回答要简洁、清晰、分点说明。
-4. 回答结尾附上信息来源。"""
+【严格规则】
+1. 只允许使用参考文档中的内容回答，禁止编造
+2. 如果参考文档中没有相关内容，直接回复：知识库中无相关信息
+3. 回答要简洁、清晰、分点说明
+4. 回答结尾请附上信息来源"""
 
-
-# ---------------------------------------------------------------------------
-# RAG Chain
-# ---------------------------------------------------------------------------
 
 @dataclass
 class RAGResult:
-    """Structured result from the RAG chain invocation."""
+    """Structured result from the RAG pipeline."""
 
     answer: str
     source_docs: list[Document]
 
 
-def _format_docs(docs: list[Document]) -> str:
-    """Format retrieved documents into a numbered, source-attributed string."""
-    parts: list[str] = []
-    for idx, doc in enumerate(docs, 1):
-        source = doc.metadata.get("source", "未知来源")
-        page = doc.metadata.get("page", "N/A")
-        parts.append(
-            f"【片段 {idx}】（来源：{source} | 页码：{page}）\n{doc.page_content}"
-        )
-    return "\n\n".join(parts)
-
-
-def _response_text(response: Any) -> str:
-    """Extract a displayable string from LangChain response objects."""
+def response_text(response: Any) -> str:
+    """Extract a plain displayable string from LangChain responses."""
     content = getattr(response, "content", response)
     if isinstance(content, str):
         return content
@@ -72,83 +58,153 @@ def _response_text(response: Any) -> str:
     return str(content)
 
 
-def build_rag_chain(retriever: VectorStoreRetriever, llm: BaseChatModel):
-    """
-    Build an LCEL-based RAG chain.
+def format_retrieved_docs(docs: list[Document]) -> str:
+    """Format documents with source metadata for prompts and display."""
+    formatted = []
+    for idx, doc in enumerate(docs, 1):
+        source = doc.metadata.get("source", "未知来源")
+        page = doc.metadata.get("page", "未知页码")
+        formatted.append(f"【片段{idx}】（{source} - 页码{page}）：\n{doc.page_content}")
+    return "\n\n".join(formatted)
 
-    Architecture::
 
-        question ──► retriever ──► format_docs ──► prompt ──► LLM ──► answer
-                  └──────────────────────────────────────────────► source_docs
-
-    Returns:
-        A callable that accepts a question string and returns ``RAGResult``.
-    """
+def build_rag_chain(retriever: BaseRetriever, llm: BaseChatModel):
+    """Build a callable RAG pipeline that returns answer + source docs."""
     prompt = ChatPromptTemplate.from_messages([
         ("system", RAG_SYSTEM_PROMPT),
         ("human", "【参考文档】\n{context}\n\n【用户问题】\n{question}"),
     ])
 
-    chain = (
-        {"context": retriever | _format_docs, "question": RunnablePassthrough()}
-        | prompt
-        | llm
-    )
-
     def invoke(question: str) -> RAGResult:
-        """Run the RAG pipeline and return structured result."""
-        # Parallel execution: retrieve docs + generate answer
         source_docs = retriever.invoke(question)
-        result = chain.invoke(question)
-        answer = _response_text(result)
-        return RAGResult(answer=answer, source_docs=source_docs)
+        response = (prompt | llm).invoke({
+            "context": format_retrieved_docs(source_docs),
+            "question": question,
+        })
+        return RAGResult(
+            answer=response_text(response),
+            source_docs=source_docs,
+        )
 
     return invoke
 
 
-# ---------------------------------------------------------------------------
-# Agent Chain
-# ---------------------------------------------------------------------------
+def _grounded_knowledge_answer(
+    task: str,
+    docs: list[Document],
+    llm: BaseChatModel,
+) -> str:
+    """Generate a grounded answer or summary from retrieved knowledge docs."""
+    if not docs:
+        return "知识库中无相关信息"
 
-def build_agent(retriever: VectorStoreRetriever, llm: BaseChatModel):
-    """
-    Build a LangGraph ReAct agent equipped with knowledge-base tools.
+    grounded_prompt = ChatPromptTemplate.from_messages([
+        ("system", """你是一个严格依据知识库完成任务的学习助手。
 
-    Tools:
-      - ``knowledge_query``: Semantic search on the uploaded corpus
-      - ``content_summary``: LLM-powered summarisation utility
-    """
+【严格规则】
+1. 只允许依据参考资料完成任务，禁止编造。
+2. 如果参考资料不足以支持回答，直接回复：知识库中无相关信息。
+3. 按照用户任务要求输出，可以总结、归纳、提炼重点、解释概念或回答问题。
+4. 回答简洁清晰、优先分点。
+5. 回答结尾附上信息来源。"""),
+        ("human", "【用户任务】\n{task}\n\n【参考资料】\n{context}"),
+    ])
+
+    response = (grounded_prompt | llm).invoke({
+        "task": task,
+        "context": format_retrieved_docs(docs),
+    })
+    return response_text(response)
+
+
+def _should_retry_with_grounded_answer(answer: str) -> bool:
+    """Detect generic agent replies that should be retried with retrieval."""
+    retry_markers = (
+        "请提供",
+        "请先提供",
+        "请补充",
+        "需要具体",
+        "请说明具体",
+        "未提供",
+        "需要更多上下文",
+        "无法根据现有信息",
+    )
+    return (
+        "知识库中无相关信息" not in answer
+        and any(marker in answer for marker in retry_markers)
+    )
+
+
+def build_agent(retriever: BaseRetriever, llm: BaseChatModel):
+    """Build a knowledge-grounded agent with retrieval-aware tools."""
 
     def knowledge_query(query: str) -> str:
-        """Query the user's uploaded knowledge base for relevant content."""
         docs = retriever.invoke(query)
         if not docs:
             return "知识库中无相关信息"
-        return _format_docs(docs)
+        return format_retrieved_docs(docs)
+
+    def knowledge_answer(task: str) -> str:
+        docs = retriever.invoke(task)
+        return _grounded_knowledge_answer(task, docs, llm)
 
     def content_summary(text: str) -> str:
-        """Summarise the given learning content, highlighting key points."""
         response = llm.invoke(
-            f"请简洁总结以下学习内容，突出核心知识点：\n\n{text}"
+            "请基于输入内容进行简洁总结，突出核心知识点，必要时分点回答：\n"
+            f"{text}"
         )
-        return _response_text(response)
+        return response_text(response)
 
     tools = [
         Tool(
+            name="knowledge_answer",
+            func=knowledge_answer,
+            description=(
+                "当用户要求基于知识库进行回答、总结、归纳、提炼重点、解释概念、"
+                "列出要点时优先使用。输入用户原始任务，工具会自动检索并给出基于知识库的答案。"
+            ),
+        ),
+        Tool(
             name="knowledge_query",
             func=knowledge_query,
-            description=(
-                "查询用户上传的知识库。当问题涉及学习笔记、知识点、"
-                "项目或总结时，优先使用此工具。"
-            ),
+            description="用于查询知识库原始片段和来源。当需要查看证据、引用原文、核对细节时使用。",
         ),
         Tool(
             name="content_summary",
             func=content_summary,
-            description="总结长文本，提炼核心知识点。",
+            description="用于总结已有文本内容，提炼核心知识点。通常在获得检索结果后再使用。",
         ),
     ]
 
-    agent = create_react_agent(llm, tools)
-    logger.info("Built ReAct agent with %d tools", len(tools))
-    return agent
+    return create_agent(
+        llm,
+        tools,
+        system_prompt=AGENT_SYSTEM_PROMPT,
+        name="study_knowledge_agent",
+    )
+
+
+def run_agent_task(
+    retriever: BaseRetriever,
+    llm: BaseChatModel,
+    messages: list[tuple[str, str]],
+    latest_task: str,
+) -> str:
+    """Run the agent with conversation history and a grounded fallback."""
+    agent = build_agent(retriever, llm)
+    result = agent.invoke({"messages": messages})
+    ai_messages = [
+        msg for msg in result.get("messages", [])
+        if hasattr(msg, "type") and msg.type == "ai"
+    ]
+
+    if ai_messages:
+        answer = response_text(ai_messages[-1])
+    else:
+        answer = "Agent 未返回有效结果"
+
+    if _should_retry_with_grounded_answer(answer):
+        docs = retriever.invoke(latest_task)
+        return _grounded_knowledge_answer(latest_task, docs, llm)
+
+    return answer

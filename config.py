@@ -41,7 +41,7 @@ class RAGConfig:
 class AppConfig:
     """Top-level application configuration."""
 
-    page_title: str = "AI 智能学习助手"
+    page_title: str = "我的AI学习助手"
     page_icon: str = "🤖"
     vector_store_path: str = "./saved_vector_store"
     supported_file_types: tuple[str, ...] = ("txt", "pdf")
