@@ -55,12 +55,15 @@ vector_store_manager.try_load_persisted()
 
 init_session_key("rag_messages", [])
 init_session_key("agent_messages", [])
+init_session_key("upload_widget_version", 0)
+init_session_key("upload_success_message", "")
+init_session_key("clear_success_message", "")
 
 
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/000000/ai.png", width=80)
     st.title("AI学习助手")
-    st.caption("基于LangChain+RAG的智能问答系统 | 部署适配版")
+    st.caption("基于LangChain+RAG的智能问答系统")
     st.divider()
 
     if vector_store_manager.is_ready:
@@ -90,9 +93,30 @@ with tab_upload:
     st.header("📂 上传你的知识库文档")
     st.caption("支持 TXT、PDF 格式，自动处理编码问题，向量库永久保存")
 
+    upload_success_message = cast(str, st.session_state.pop("upload_success_message", ""))
+    clear_success_message = cast(str, st.session_state.pop("clear_success_message", ""))
+    if upload_success_message:
+        st.success(upload_success_message)
+        st.info("现在可以切换到「RAG精准问答」或「Agent智能助手」继续使用。")
+    if clear_success_message:
+        st.success(clear_success_message)
+
+    if vector_store_manager.is_ready:
+        if st.button("🗑️ 清空知识库", type="secondary", use_container_width=True):
+            try:
+                vector_store_manager.clear()
+                st.session_state["rag_messages"] = []
+                st.session_state["agent_messages"] = []
+                st.session_state["upload_widget_version"] += 1
+                st.session_state["clear_success_message"] = "✅ 知识库已清空"
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+
     uploaded_file = st.file_uploader(
         "选择文档",
         type=list(app_config.supported_file_types),
+        key=f"knowledge_upload_{st.session_state['upload_widget_version']}",
     )
 
     if uploaded_file:
@@ -102,10 +126,11 @@ with tab_upload:
                 vector_store_manager.build_from_documents(split_docs)
                 st.session_state["rag_messages"] = []
                 st.session_state["agent_messages"] = []
-                st.success(
+                st.session_state["upload_widget_version"] += 1
+                st.session_state["upload_success_message"] = (
                     f"✅ 文档处理完成！共生成 {len(split_docs)} 个文本块，向量库已永久保存"
                 )
-                st.info("现在可以切换到「RAG精准问答」或「Agent智能助手」继续使用。")
+                st.rerun()
             except Exception as exc:
                 st.error(f"处理失败：{exc}")
 

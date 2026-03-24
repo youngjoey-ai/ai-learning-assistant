@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from typing import TYPE_CHECKING, cast
 
 import streamlit as st
@@ -92,6 +93,30 @@ class VectorStoreManager:
             logger.exception("Failed to load persisted vector store")
             st.session_state[_SESSION_KEY] = None
             return False
+
+    def clear(self) -> bool:
+        """
+        Remove the current vector store from session and disk.
+
+        Returns:
+            ``True`` if a session or persisted store existed, ``False`` otherwise.
+        """
+        had_store = self.is_ready or os.path.exists(self._persist_path)
+        st.session_state[_SESSION_KEY] = None
+
+        if not os.path.exists(self._persist_path):
+            return had_store
+
+        try:
+            if os.path.isdir(self._persist_path):
+                shutil.rmtree(self._persist_path)
+            else:
+                os.remove(self._persist_path)
+            logger.info("Cleared persisted vector store at %s", self._persist_path)
+            return had_store
+        except Exception as exc:
+            logger.exception("Failed to clear persisted vector store")
+            raise RuntimeError("清空知识库失败，请稍后重试。") from exc
 
     def get_retriever(self, top_k: int = 3) -> BaseRetriever:
         """
