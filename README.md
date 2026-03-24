@@ -1,17 +1,41 @@
-# AI Learning Assistant
+# AI Knowledge Assistant
 
-基于 Streamlit、LangChain、LangGraph 和 FAISS 的 AI 学习助手，支持上传 `TXT` / `PDF` 文档，构建本地知识库，并提供 RAG 精准问答与 Agent 智能助手两种使用模式。
+面向个人与团队文档场景的 AI 知识助手，支持文档上传、知识库构建、精准问答、多轮任务处理与会话导出。项目基于 `Streamlit`、`LangChain`、`LangGraph`、`FAISS` 与 `DashScope` 实现，可本地运行，也可直接部署到 `Streamlit Cloud`。
 
-## 功能亮点
+它适合用作以下类型的真实业务工具：
 
-- 支持上传 `TXT`、`PDF` 文档并自动切分文本
-- 对 `TXT` 文件做编码兜底，兼容 `utf-8`、`gb18030`、`gbk`
-- 使用 DashScope Embeddings 构建 FAISS 向量库
-- 启动时自动加载历史向量库，减少重复处理
-- 提供 RAG 精准问答，回答时附带参考来源
-- 提供 Agent 智能助手，支持检索、总结、归纳等复杂任务
-- 支持清空和导出对话记录
-- 兼容本地 `.env` 和 Streamlit Cloud `Secrets`
+- 内部知识库问答系统
+- 培训资料与操作手册助手
+- 项目文档检索与总结助手
+- 个人资料库与学习资料管理工具
+
+## 核心能力
+
+- 支持上传 `TXT`、`PDF` 文档并自动完成切分、向量化与索引构建
+- 内置 `TXT` 编码兜底策略，兼容 `utf-8`、`gb18030`、`gbk`
+- 基于 `FAISS` 的本地向量库存储，支持历史知识库自动加载
+- 提供 RAG 精准问答模式，回答严格基于检索结果并展示来源
+- 提供 Agent 智能助手模式，支持总结、归纳、知识点提炼等复杂任务
+- 支持清空知识库、清空对话记录和导出 Markdown 对话记录
+- 支持本地 `.env` 配置与 `Streamlit Secrets` 云端配置
+
+## 产品特性
+
+### 1. 文档接入与知识沉淀
+
+上传文档后，系统会自动完成临时落盘、格式识别、文本抽取、分块处理和向量化建库。处理完成后，知识库可持久化保存，应用重启后仍可直接使用。
+
+### 2. 可控的知识库问答
+
+RAG 模式仅基于检索到的文档片段回答问题，并在结果中附带参考来源，适合对准确性、可追溯性要求较高的知识查询场景。
+
+### 3. 面向任务的智能助手
+
+Agent 模式内置知识检索、知识回答和内容总结能力，适合执行“总结文档重点”“整理项目要点”“解释概念差异”“提炼关键信息”等更复杂的任务。
+
+### 4. 面向部署的工程结构
+
+项目已拆分为配置管理、文档处理、链路构建、向量库管理和聊天 UI 辅助等独立模块，便于继续扩展文件格式、替换模型或接入更多工具。
 
 ## 技术栈
 
@@ -26,23 +50,41 @@
 
 ```text
 ai_assistant_app/
-├── ai_assistant_app.py       # Streamlit 应用主入口
-├── config.py                 # 配置定义
-├── chains.py                 # RAG / Agent 链路封装
-├── document_processing.py    # 文档加载与分块处理
-├── vector_store_manager.py   # 向量库管理
-├── chat_helpers.py           # 对话 UI 辅助函数
+├── ai_assistant_app.py       # 主应用入口
+├── config.py                 # 配置与密钥解析
+├── chains.py                 # RAG / Agent 链路构建
+├── document_processing.py    # 文档加载、切分与扩展策略
+├── vector_store_manager.py   # 向量库构建、加载、清理与检索接口
+├── chat_helpers.py           # 对话渲染、导出与会话控制
 ├── requirements.txt          # 依赖列表
 ├── .env.example              # 环境变量示例
 ├── README.md                 # 项目说明
-└── Day1 ~ Day18/             # 学习过程中的阶段性代码与实验文件
+└── Day1 ~ Day18/             # 历史迭代版本与早期原型参考
 ```
 
 说明：
 
-- 当前应用入口是 `ai_assistant_app.py`
-- `config.py`、`chains.py`、`document_processing.py` 等文件是后续模块化拆分的产物
-- `Day1` 到 `Day18` 目录保留了学习过程中的每日练习与演进版本
+- 线上或本地运行请使用 `ai_assistant_app.py`
+- 根目录模块为当前主线实现
+- `Day1 ~ Day18` 目录属于历史演进代码，不影响当前应用运行
+
+## 系统架构
+
+```text
+用户上传 TXT / PDF
+        ↓
+DocumentProcessor
+        ↓
+文本切分与清洗
+        ↓
+DashScope Embeddings
+        ↓
+FAISS 本地向量库持久化
+        ↓
+RAG 问答 / Agent 任务执行
+        ↓
+Streamlit UI 展示与会话导出
+```
 
 ## 快速开始
 
@@ -53,9 +95,7 @@ git clone <your-repo-url>
 cd ai_assistant_app
 ```
 
-### 2. 创建并激活虚拟环境
-
-如果目录里已经有可用的 `.venv`，可以直接激活；否则先创建：
+### 2. 创建虚拟环境
 
 ```bash
 python3 -m venv .venv
@@ -68,7 +108,7 @@ Windows PowerShell:
 .venv\Scripts\Activate.ps1
 ```
 
-如果你使用 `uv`，也可以这样创建环境：
+如果使用 `uv`：
 
 ```bash
 uv venv
@@ -81,7 +121,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-如果你使用 `uv`：
+或：
 
 ```bash
 uv pip install -r requirements.txt
@@ -89,19 +129,19 @@ uv pip install -r requirements.txt
 
 ### 4. 配置环境变量
 
-可以直接复制示例文件：
+复制示例文件：
 
 ```bash
 cp .env.example .env
 ```
 
-然后在项目根目录的 `.env` 中填写：
+在 `.env` 中填写：
 
 ```env
 DASHSCOPE_API_KEY=your_dashscope_api_key_here
 ```
 
-如果部署到 Streamlit Cloud，请在 `Secrets` 中配置同名变量：
+如果部署到 `Streamlit Cloud`，请在 `Secrets` 中配置：
 
 ```toml
 DASHSCOPE_API_KEY = "your_dashscope_api_key_here"
@@ -113,66 +153,59 @@ DASHSCOPE_API_KEY = "your_dashscope_api_key_here"
 streamlit run ai_assistant_app.py
 ```
 
-启动后在浏览器打开本地地址即可使用。
+默认启动后即可在浏览器中访问本地应用。
 
 ## 使用流程
 
-1. 在“知识库上传”页上传 `TXT` 或 `PDF` 文件
-2. 系统自动切分文档并构建向量库
-3. 切换到“RAG 精准问答”进行基于知识库的提问
-4. 切换到“Agent 智能助手”完成总结、归纳、检索等复杂任务
-5. 如有需要，可导出问答记录为 Markdown 文件
+1. 在“知识库上传”页面上传 `TXT` 或 `PDF` 文档
+2. 系统自动完成文本切分、向量化与知识库保存
+3. 在“RAG 精准问答”页面进行可追溯问答
+4. 在“Agent 智能助手”页面执行总结、归纳、提炼等任务
+5. 按需导出对话记录或清空当前知识库
 
-## 应用说明
+## 配置说明
 
-### RAG 精准问答
+当前默认配置集中在 `config.py`，包括：
 
-- 基于知识库检索结果生成回答
-- 回答时展示参考文档来源
-- 尽量减少幻觉，严格围绕上传内容作答
+- 嵌入模型与聊天模型
+- 文本分块大小与重叠长度
+- 检索 `Top K`
+- 支持的文件类型
+- 向量库本地存储路径
 
-### Agent 智能助手
-
-- 内置知识库查询工具
-- 内置文本总结工具
-- 适合执行多步骤学习任务，比如总结重点、归纳概念、提炼知识点
-
-## 向量库持久化
-
-应用会将向量库保存到本地目录：
+默认向量库存储目录：
 
 ```text
 ./saved_vector_store
 ```
 
-下次启动时会尝试自动加载已保存的知识库。该目录通常在首次上传文档后自动生成。
-
-## 依赖说明
-
-核心依赖见 [requirements.txt](requirements.txt)，包括：
-
-- `streamlit`
-- `langchain`
-- `langchain-community`
-- `langchain-openai`
-- `langchain-text-splitters`
-- `langgraph`
-- `dashscope`
-- `pypdf`
-- `faiss-cpu`
+应用启动时会自动尝试加载该目录中的历史知识库。
 
 ## 部署说明
 
-部署到 Streamlit Cloud 时，请注意：
+项目默认适合以下部署方式：
 
-- 在 `Secrets` 中配置 `DASHSCOPE_API_KEY`
-- 确保 [requirements.txt](requirements.txt) 中的依赖完整可安装
-- 应用运行目录需要具备本地写入权限，以保存向量库
+- 本地单机运行
+- 内网演示环境部署
+- `Streamlit Cloud` 快速发布
 
-## 适用场景
+部署时建议注意：
 
-- 课程资料问答
-- 学习笔记检索
-- PDF / TXT 文档总结
-- 复习资料整理
-- 个人知识库问答助手
+- 配置 `DASHSCOPE_API_KEY`
+- 保证运行目录具备本地写权限，用于保存向量库
+- 生产环境可通过挂载持久化卷保留知识库数据
+- 如需团队协作场景，可进一步增加鉴权、用户隔离和对象存储能力
+
+## 典型应用场景
+
+- 企业制度、SOP、培训手册问答
+- 项目方案、周报、复盘文档整理
+- 招投标材料、产品资料、需求文档检索
+- 个人知识库、研究资料和课程资料问答
+
+## 后续扩展方向
+
+- 增加 `DOCX`、`Markdown` 等更多文档格式支持
+- 接入多知识库管理与用户权限控制
+- 增加引用高亮、检索调参和管理后台
+- 替换或并行接入更多大模型与向量数据库
