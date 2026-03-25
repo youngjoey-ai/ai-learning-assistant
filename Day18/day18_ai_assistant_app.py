@@ -1,4 +1,6 @@
 import os
+from typing import Any
+
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -7,7 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import Tool
 
@@ -24,6 +26,24 @@ st.title("🤖 我的AI学习助手 | 18天学习成果落地")
 # 2. 加载配置与初始化（全局复用）
 load_dotenv()
 API_KEY = os.getenv("DASHSCOPE_API_KEY")
+
+
+def _stringify_content(content: Any) -> str:
+    """Normalize LangChain message content to plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(item) for item in content)
+    return str(content)
+
+
+def _format_docs(docs) -> str:
+    sections = []
+    for i, doc in enumerate(docs, 1):
+        source = doc.metadata.get("source", "未知来源")
+        page = doc.metadata.get("page", "N/A")
+        sections.append(f"【参考文档 {i}】来源：{source} | 页码：{page}\n{doc.page_content}")
+    return "\n\n".join(sections)
 
 # 初始化核心模型（只初始化1次，提升性能）
 @st.cache_resource
@@ -79,42 +99,44 @@ def load_and_split_file(uploaded_file):
 # 3.2 构建RAG问答链
 @st.cache_resource
 def build_rag_chain(_vector_store):
-    rag_prompt = PromptTemplate(
-        input_variables=["context", "question"],
-        template="""
+    rag_prompt = ChatPromptTemplate.from_messages([
+        ("system", """你是一个严格依据知识库回答问题的助手。
+
 【严格规则】
 1. 只允许使用参考文档里的内容回答，禁止编造
-2. 文档里没有相关内容，直接回复："知识库中无相关信息"
+2. 文档里没有相关内容，直接回复：知识库中无相关信息
 3. 回答简洁清晰，分点说明
-4. 结尾标注信息来源
-
-【参考文档】
-{context}
-
-【用户问题】
-{question}
-"""
-    )
+4. 结尾标注信息来源"""),
+        ("human", "【参考文档】\n{context}\n\n【用户问题】\n{question}"),
+    ])
     retriever = _vector_store.as_retriever(search_kwargs={"k": 3})
-    rag_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-        chain_type_kwargs={"prompt": rag_prompt},
-        return_source_documents=True
-    )
-    return rag_chain
+
+    def invoke(question: str) -> dict[str, Any]:
+        source_docs = retriever.invoke(question)
+        response = (rag_prompt | llm).invoke({
+            "context": _format_docs(source_docs),
+            "question": question,
+        })
+        return {
+            "answer": _stringify_content(getattr(response, "content", response)),
+            "source_documents": source_docs,
+        }
+
+    return invoke
 
 # 3.3 构建Agent智能体
 @st.cache_resource
 def build_agent_chain(_vector_store):
     # 定义工具
-    def knowledge_query(query):
-        docs = _vector_store.as_retriever(search_kwargs={"k": 3}).get_relevant_documents(query)
-        return "\n".join([doc.page_content for doc in docs])
+    def knowledge_query(query: str) -> str:
+        docs = _vector_store.as_retriever(search_kwargs={"k": 3}).invoke(query)
+        if not docs:
+            return "知识库中无相关信息"
+        return _format_docs(docs)
     
-    def content_summary(text):
-        return llm.invoke(f"请简洁总结这段学习内容，突出核心知识点：{text}")
+    def content_summary(text: str) -> str:
+        response = llm.invoke(f"请简洁总结这段学习内容，突出核心知识点：{text}")
+        return _stringify_content(response.content)
     
     tools = [
         Tool(
@@ -128,21 +150,20 @@ def build_agent_chain(_vector_store):
             description="用于总结文本、学习内容、长段落，提炼核心信息"
         )
     ]
-    
-    # 记忆组件
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    # ReAct思考模板
-    prompt = hub.pull("hwchase17/react-chat")
-    # 创建Agent
-    agent = create_react_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(
-        agent=agent,
+
+    agent_prompt = """你是一个专业的AI学习助手，可以使用工具完成知识库相关任务。
+
+重要规则：
+1. 涉及学习笔记、知识点、项目、总结时，优先使用“知识库查询”工具
+2. 需要总结长文本时，使用“内容总结”工具
+3. 必须基于工具结果回答，禁止编造
+4. 回答保持简洁清晰，使用纯文本"""
+
+    return create_react_agent(
+        model=llm,
         tools=tools,
-        verbose=True,
-        handle_parsing_errors=True,
-        memory=memory
+        prompt=agent_prompt,
     )
-    return agent_executor
 
 # ======================
 # 4. 页面分Tab展示（3大核心模块）
@@ -195,8 +216,8 @@ with tab2:
             # 调用RAG链
             with st.spinner("正在检索知识库并生成回答..."):
                 rag_chain = build_rag_chain(st.session_state.vector_store)
-                result = rag_chain.invoke(user_question)
-                answer = result["result"]
+                result = rag_chain(user_question)
+                answer = result["answer"]
                 source_docs = result["source_documents"]
             
             # 展示AI回答
@@ -238,8 +259,19 @@ with tab3:
             # 调用Agent
             with st.spinner("Agent正在思考并执行任务..."):
                 agent_chain = build_agent_chain(st.session_state.vector_store)
-                result = agent_chain.invoke({"input": user_input})
-                answer = result["output"]
+                conversation = [
+                    (msg["role"], msg["content"])
+                    for msg in st.session_state.agent_messages
+                ]
+                result = agent_chain.invoke({"messages": conversation})
+                ai_messages = [
+                    m for m in result["messages"]
+                    if hasattr(m, "type") and m.type == "ai"
+                ]
+                if ai_messages:
+                    answer = _stringify_content(ai_messages[-1].content)
+                else:
+                    answer = "Agent 未返回结果"
             
             # 展示AI回答
             with st.chat_message("assistant"):

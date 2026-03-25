@@ -1,6 +1,7 @@
 import os
-import traceback
 from datetime import datetime
+from typing import Any
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from dotenv import load_dotenv
@@ -39,6 +40,15 @@ except Exception as e:
     print(f"⚠️ 知识库加载失败: {e}")
     retriever = None
 
+
+def _stringify_content(content: Any) -> str:
+    """Normalize LangChain message content to plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(item) for item in content)
+    return str(content)
+
 # ======================
 # 2. 工具集大升级：5大工具协同（全部用@tool装饰器）
 # ----------------------
@@ -72,7 +82,8 @@ def study_summary(text: str) -> str:
 3. 每条不超过20字
 
 总结内容：{text}"""
-    return llm.invoke(prompt.format(text=text)).content
+    response = llm.invoke(prompt.format(text=text))
+    return _stringify_content(response.content)
 
 # 工具3：学习统计（新增核心工具）
 @tool
@@ -96,7 +107,8 @@ def study_statistics(query: str) -> str:
 要求：每条单独一行，不要用Markdown符号
 
 笔记内容：{all_notes[:1000]}"""
-    stat_result = llm.invoke(stat_prompt).content
+    response = llm.invoke(stat_prompt)
+    stat_result = _stringify_content(response.content)
     print(f"📊 [统计结果] {stat_result[:100]}...")
     return stat_result
 
@@ -207,7 +219,7 @@ if __name__ == "__main__":
             ai_messages = [m for m in response["messages"] if hasattr(m, 'type') and m.type == 'ai']
             if ai_messages:
                 last_ai_message = ai_messages[-1]
-                answer = last_ai_message.content
+                answer = _stringify_content(last_ai_message.content)
             else:
                 answer = "没有获取到回答"
             
