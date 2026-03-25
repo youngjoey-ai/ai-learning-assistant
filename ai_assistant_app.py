@@ -61,6 +61,112 @@ init_session_key("upload_success_message", "")
 init_session_key("clear_success_message", "")
 
 
+def inject_responsive_styles() -> None:
+    """Add responsive typography so headings stay tidy on smaller screens."""
+    st.markdown(
+        """
+        <style>
+        .block-container {
+            padding-top: 3.5rem;
+        }
+
+        .app-page-title,
+        .app-section-title {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.6rem;
+            width: 100%;
+        }
+
+        .app-page-title {
+            margin: 0 0 0.35rem;
+        }
+
+        .app-section-title {
+            margin: 1.1rem 0 0.25rem;
+        }
+
+        .app-page-title__icon,
+        .app-section-title__icon {
+            flex: 0 0 auto;
+            line-height: 1;
+        }
+
+        .app-page-title__icon {
+            font-size: clamp(2rem, 8vw, 3rem);
+        }
+
+        .app-section-title__icon {
+            font-size: clamp(1.75rem, 6vw, 2.4rem);
+            margin-top: 0.12rem;
+        }
+
+        .app-page-title__text,
+        .app-section-title__text {
+            min-width: 0;
+            font-weight: 800;
+            line-height: 1.08;
+            letter-spacing: -0.02em;
+            text-wrap: balance;
+        }
+
+        .app-page-title__text {
+            font-size: clamp(2.25rem, 8.2vw, 4rem);
+        }
+
+        .app-section-title__text {
+            font-size: clamp(1.95rem, 6.3vw, 3rem);
+        }
+
+        @media (max-width: 768px) {
+            .block-container {
+                padding-top: calc(5rem + env(safe-area-inset-top));
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+
+            button[data-baseweb="tab"] {
+                padding-left: 0.55rem;
+                padding-right: 0.55rem;
+            }
+
+            button[data-baseweb="tab"] p {
+                font-size: 0.95rem;
+                white-space: nowrap;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_page_title(icon: str, title_html: str) -> None:
+    """Render a responsive page title with cleaner mobile wrapping."""
+    st.markdown(
+        f"""
+        <div class="app-page-title">
+            <span class="app-page-title__icon">{icon}</span>
+            <span class="app-page-title__text">{title_html}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_title(icon: str, title_html: str) -> None:
+    """Render a responsive section heading with controlled break points."""
+    st.markdown(
+        f"""
+        <div class="app-section-title">
+            <span class="app-section-title__icon">{icon}</span>
+            <span class="app-section-title__text">{title_html}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def clear_knowledge_base() -> None:
     """Clear the active knowledge base, with a fallback for older manager versions."""
     clear_method = getattr(vector_store_manager, "clear", None)
@@ -98,7 +204,8 @@ with st.sidebar:
         3. 「Agent智能助手」：LangGraph预构建Agent，支持复杂任务
         """)
 
-st.title("🤖 我的AI学习助手")
+inject_responsive_styles()
+render_page_title("🤖", "我的AI学习<wbr>助手")
 
 tab_upload, tab_rag, tab_agent = st.tabs([
     "📂 知识库上传",
@@ -108,7 +215,7 @@ tab_upload, tab_rag, tab_agent = st.tabs([
 
 
 with tab_upload:
-    st.header("📂 上传你的知识库文档")
+    render_section_title("📂", "上传你的<wbr>知识库文档")
     st.caption("支持 TXT、PDF 格式，自动处理编码问题，向量库永久保存")
 
     upload_success_message = cast(str, st.session_state.pop("upload_success_message", ""))
@@ -154,7 +261,7 @@ with tab_upload:
 
 
 with tab_rag:
-    st.header("💬 知识库精准问答")
+    render_section_title("💬", "知识库精准<wbr>问答")
     st.caption("严格基于你上传的文档回答，尽量减少幻觉，并提供参考来源")
 
     rag_messages = cast(list[ChatMessage], st.session_state["rag_messages"])
@@ -214,7 +321,7 @@ with tab_rag:
 
 
 with tab_agent:
-    st.header("🤖 Agent智能助手")
+    render_section_title("🤖", "Agent智能<wbr>助手")
     st.caption("自主拆解任务、调用工具，适合总结、检索、归纳等复杂任务")
 
     agent_messages = cast(list[ChatMessage], st.session_state["agent_messages"])
