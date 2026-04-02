@@ -1,5 +1,6 @@
 import os
 import shutil
+from uuid import uuid4
 from typing import cast
 
 import streamlit as st
@@ -7,7 +8,7 @@ from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from chains import build_rag_chain, run_agent_task
+from chains import AgentRunDetails, run_agent_task, run_task_agent
 from chat_helpers import (
     ChatMessage,
     init_session_key,
@@ -20,6 +21,7 @@ from vector_store_manager import VectorStoreManager
 
 
 app_config = AppConfig()
+AGENT_TIMEOUT_SECONDS = 45.0
 
 st.set_page_config(
     page_title=app_config.page_title,
@@ -54,8 +56,12 @@ vector_store_manager = VectorStoreManager(
 )
 vector_store_manager.try_load_persisted()
 
-init_session_key("rag_messages", [])
 init_session_key("agent_messages", [])
+init_session_key("agent_thread_id", f"agent-{uuid4().hex}")
+init_session_key("task_messages", [])
+init_session_key("task_thread_id", f"task-{uuid4().hex}")
+init_session_key("agent_mode", "📚 文档问答（知识库）")
+init_session_key("mode_recommendation_message", "")
 init_session_key("upload_widget_version", 0)
 init_session_key("upload_success_message", "")
 init_session_key("clear_success_message", "")
@@ -185,10 +191,34 @@ def clear_knowledge_base() -> None:
         raise RuntimeError("清空知识库失败，请稍后重试。") from exc
 
 
+def recommend_agent_mode(task_text: str) -> str:
+    query = task_text.lower()
+    task_mode_keywords = (
+        "今天",
+        "最新",
+        "实时",
+        "天气",
+        "新闻",
+        "联网",
+        "搜索",
+        "计算",
+        "算一下",
+        "时间",
+        "待办",
+        "计划",
+        "deadline",
+        "todo",
+    )
+    if any(keyword in query for keyword in task_mode_keywords):
+        return "🛠️ 任务执行（联网/计算）"
+    return "📚 文档问答（知识库）"
+
+
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/000000/ai.png", width=80)
     st.title("AI学习助手")
     st.caption("基于LangChain+RAG的智能问答系统")
+    st.caption("定位：Agent编排驱动，兼具文档问答与任务执行")
     st.divider()
 
     if vector_store_manager.is_ready:
@@ -199,18 +229,17 @@ with st.sidebar:
     st.divider()
     with st.expander("📖 使用说明"):
         st.markdown("""
-        1. 「知识库上传」：支持TXT/PDF，自动处理编码问题
-        2. 「RAG精准问答」：LCEL架构，严格基于文档回答
-        3. 「Agent智能助手」：LangGraph预构建Agent，支持复杂任务
+        「知识库上传」：支持TXT/PDF，自动处理编码问题。\n
+        「Agent 对话」：所有问题先进入Agent决策，再自动调用知识库与联网工具。\n
+         优先知识库回答：知识库无相关信息时，自动触发联网搜索补充。
         """)
 
 inject_responsive_styles()
 render_page_title("🤖", "我的AI学习<wbr>助手")
 
-tab_upload, tab_rag, tab_agent = st.tabs([
+tab_upload, tab_agent = st.tabs([
     "📂 知识库上传",
-    "💬 RAG精准问答",
-    "🤖 Agent智能助手",
+    "🤖 Agent 对话",
 ])
 
 
@@ -222,7 +251,7 @@ with tab_upload:
     clear_success_message = cast(str, st.session_state.pop("clear_success_message", ""))
     if upload_success_message:
         st.success(upload_success_message)
-        st.info("现在可以切换到「RAG精准问答」或「Agent智能助手」继续使用。")
+        st.info("现在可以切换到「Agent 对话」继续使用。")
     if clear_success_message:
         st.success(clear_success_message)
 
@@ -230,8 +259,10 @@ with tab_upload:
         if st.button("🗑️ 清空知识库", type="secondary", use_container_width=True):
             try:
                 clear_knowledge_base()
-                st.session_state["rag_messages"] = []
                 st.session_state["agent_messages"] = []
+                st.session_state["agent_thread_id"] = f"agent-{uuid4().hex}"
+                st.session_state["task_messages"] = []
+                st.session_state["task_thread_id"] = f"task-{uuid4().hex}"
                 st.session_state["upload_widget_version"] += 1
                 st.session_state["clear_success_message"] = "✅ 知识库已清空"
                 st.rerun()
@@ -249,8 +280,10 @@ with tab_upload:
             try:
                 split_docs = document_processor.process(uploaded_file)
                 vector_store_manager.build_from_documents(split_docs)
-                st.session_state["rag_messages"] = []
                 st.session_state["agent_messages"] = []
+                st.session_state["agent_thread_id"] = f"agent-{uuid4().hex}"
+                st.session_state["task_messages"] = []
+                st.session_state["task_thread_id"] = f"task-{uuid4().hex}"
                 st.session_state["upload_widget_version"] += 1
                 st.session_state["upload_success_message"] = (
                     f"✅ 文档处理完成！共生成 {len(split_docs)} 个文本块，向量库已永久保存"
@@ -260,108 +293,101 @@ with tab_upload:
                 st.error(f"处理失败：{exc}")
 
 
-with tab_rag:
-    render_section_title("💬", "知识库精准<wbr>问答")
-    st.caption("严格基于你上传的文档回答，尽量减少幻觉，并提供参考来源")
-
-    rag_messages = cast(list[ChatMessage], st.session_state["rag_messages"])
-
-    if not vector_store_manager.is_ready:
-        st.warning("请先在「知识库上传」标签页上传文档并构建向量库。")
-    else:
-        render_chat_history(rag_messages, show_sources=True)
-
-        user_question = st.chat_input("请输入你的问题...", key="rag_chat_input")
-        if user_question:
-            with st.chat_message("user"):
-                st.markdown(user_question)
-            rag_messages.append({"role": "user", "content": user_question})
-
-            with st.spinner("正在检索知识库并生成回答..."):
-                try:
-                    rag = build_rag_chain(
-                        vector_store_manager.get_retriever(
-                            app_config.rag.retriever_top_k
-                        ),
-                        llm,
-                    )
-                    result = rag(user_question)
-                    answer = result.answer
-                    source_docs = result.source_docs
-                except Exception as exc:
-                    answer = f"调用 RAG 失败：{exc}"
-                    source_docs = []
-
-            with st.chat_message("assistant"):
-                st.markdown(answer)
-                if source_docs:
-                    with st.expander("📄 查看参考文档来源"):
-                        for idx, doc in enumerate(source_docs, 1):
-                            source = doc.metadata.get("source", "未知")
-                            page = doc.metadata.get("page", "N/A")
-                            st.markdown(
-                                f"**片段 {idx}** — 来源：`{source}` | 页码：`{page}`"
-                            )
-                            st.caption(doc.page_content)
-                            if idx < len(source_docs):
-                                st.divider()
-
-            rag_messages.append({
-                "role": "assistant",
-                "content": answer,
-                "source_docs": source_docs,
-            })
-
-        render_chat_controls(
-            "rag_messages",
-            "RAG精准问答对话记录",
-            "RAG问答记录.md",
-            include_sources=True,
-        )
-
-
 with tab_agent:
-    render_section_title("🤖", "Agent智能<wbr>助手")
-    st.caption("自主拆解任务、调用工具，适合总结、检索、归纳等复杂任务")
+    render_section_title("🤖", "Agent<wbr> 对话")
+    recommendation_message = cast(str, st.session_state.pop("mode_recommendation_message", ""))
+    if recommendation_message:
+        st.info(recommendation_message)
+    mode_hint = st.text_input(
+        "不确定选哪个模式？先输入一句任务！",
+        key="mode_hint_input",
+    )
+    if st.button("✨ 智能推荐模式", use_container_width=True):
+        if mode_hint.strip():
+            recommended_mode = recommend_agent_mode(mode_hint.strip())
+            st.session_state["agent_mode"] = recommended_mode
+            st.session_state["mode_recommendation_message"] = f"推荐：{recommended_mode}"
+        else:
+            st.session_state["mode_recommendation_message"] = "请先输入任务内容，再进行模式推荐。"
+        st.rerun()
+    mode = st.radio(
+        "选择Agent模式",
+        ("📚 文档问答（知识库）", "🛠️ 任务执行（联网/计算）"),
+        horizontal=True,
+        key="agent_mode",
+    )
+    is_knowledge_mode = mode == "📚 文档问答（知识库）"
+    if is_knowledge_mode:
+        st.caption("适合：解释你上传文档、提炼知识点、基于资料回答。示例：帮我总结这份PDF第3章。")
+    else:
+        st.caption("适合：实时信息、计算、通用任务。示例：帮我查今天AI新闻并生成待办清单。")
+    messages_key = "agent_messages" if is_knowledge_mode else "task_messages"
+    thread_key = "agent_thread_id" if is_knowledge_mode else "task_thread_id"
+    messages = cast(list[ChatMessage], st.session_state[messages_key])
 
-    agent_messages = cast(list[ChatMessage], st.session_state["agent_messages"])
-
-    if not vector_store_manager.is_ready:
+    if is_knowledge_mode and not vector_store_manager.is_ready:
         st.warning("请先在「知识库上传」标签页上传文档并构建向量库。")
     else:
-        render_chat_history(agent_messages)
+        render_chat_history(messages)
 
-        user_input = st.chat_input("请输入你要完成的任务...", key="agent_chat_input")
+        input_placeholder = (
+            "例如：请根据我上传的文档解释RAG和Agent区别"
+            if is_knowledge_mode
+            else "例如：查一下今天AI行业要闻，并给我3条行动建议"
+        )
+        user_input = st.chat_input(input_placeholder, key="agent_chat_input")
         if user_input:
             with st.chat_message("user"):
                 st.markdown(user_input)
-            agent_messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "user", "content": user_input})
 
             with st.spinner("Agent 正在思考并执行任务..."):
                 try:
                     conversation = [
                         (msg["role"], msg["content"])
-                        for msg in agent_messages
+                        for msg in messages
                     ]
-                    answer = run_agent_task(
-                        vector_store_manager.get_retriever(top_k=4),
-                        llm,
-                        conversation,
-                        user_input,
-                    )
+                    if is_knowledge_mode:
+                        answer = run_agent_task(
+                            vector_store_manager.get_retriever(top_k=4),
+                            llm,
+                            conversation,
+                            user_input,
+                            cast(str, st.session_state[thread_key]),
+                            return_details=True,
+                            timeout_seconds=AGENT_TIMEOUT_SECONDS,
+                        )
+                    else:
+                        answer = run_task_agent(
+                            llm,
+                            conversation,
+                            user_input,
+                            cast(str, st.session_state[thread_key]),
+                            return_details=True,
+                            timeout_seconds=AGENT_TIMEOUT_SECONDS,
+                        )
                 except Exception as exc:
                     answer = f"Agent 执行失败：{exc}\n请检查问题格式或重试"
 
             with st.chat_message("assistant"):
-                st.markdown(answer)
+                if isinstance(answer, AgentRunDetails):
+                    st.markdown(answer.answer)
+                    with st.expander("🧭 Agent执行观测"):
+                        st.json(answer.metrics)
+                        st.json(answer.trace)
+                    answer_text = answer.answer
+                else:
+                    st.markdown(answer)
+                    answer_text = answer
 
-            agent_messages.append({
+            messages.append({
                 "role": "assistant",
-                "content": answer,
+                "content": answer_text,
             })
 
         render_chat_controls(
-            "agent_messages",
-            "Agent智能助手对话记录",
-            "Agent对话记录.md",
+            messages_key,
+            "Agent智能助手对话记录" if is_knowledge_mode else "任务执行Agent对话记录",
+            "Agent对话记录.md" if is_knowledge_mode else "任务执行Agent对话记录.md",
+            extra_reset_keys=[thread_key],
         )
