@@ -1,8 +1,7 @@
 """
-Shared chat UI helpers.
+通用聊天 UI 辅助函数。
 
-Eliminates duplicated Streamlit chat rendering / export logic
-across RAG and Agent tabs.
+在 RAG 与 Agent 页面间复用渲染与导出逻辑，避免重复代码。
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from langchain_core.documents import Document
 
 
 class ChatMessage(TypedDict, total=False):
-    """Chat message payload stored in Streamlit session state."""
+    """保存在 Streamlit 会话状态中的聊天消息载荷。"""
 
     role: str
     content: str
@@ -22,7 +21,7 @@ class ChatMessage(TypedDict, total=False):
 
 
 def init_session_key(key: str, default: Any) -> None:
-    """Initialise a session-state key if it does not yet exist."""
+    """如果会话状态中不存在该键，则进行初始化。"""
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -31,10 +30,10 @@ def render_chat_history(
     messages: list[ChatMessage], *, show_sources: bool = False
 ) -> None:
     """
-    Render a list of chat messages (``role`` / ``content`` dicts).
+    渲染聊天消息列表（包含 ``role`` / ``content`` 字段）。
 
-    If *show_sources* is ``True``, assistant messages with a
-    ``source_docs`` key will render an expandable reference section.
+    当 *show_sources* 为 ``True`` 时，带有 ``source_docs`` 的助手消息
+    会显示可展开的参考来源区块。
     """
     for msg in messages:
         with st.chat_message(msg["role"]):
@@ -48,7 +47,7 @@ def render_chat_history(
 
 
 def _render_source_expander(source_docs: list[Document]) -> None:
-    """Render a collapsible section listing source document excerpts."""
+    """渲染可折叠的参考来源区块，展示文档片段。"""
     with st.expander("📄 查看参考文档来源"):
         for idx, doc in enumerate(source_docs, 1):
             source = doc.metadata.get("source", "未知")
@@ -66,12 +65,12 @@ def export_as_markdown(
     include_sources: bool = False,
 ) -> str:
     """
-    Serialise chat messages to a downloadable Markdown string.
+    将聊天消息序列化为可下载的 Markdown 字符串。
 
-    Args:
-        messages: The chat message list.
-        title: Document title.
-        include_sources: Whether to append reference-source sections.
+    参数：
+        messages: 聊天消息列表。
+        title: 文档标题。
+        include_sources: 是否附加参考来源片段。
     """
     lines = [f"# {title}\n"]
     for msg in messages:
@@ -100,14 +99,14 @@ def render_chat_controls(
     extra_reset_keys: list[str] | None = None,
 ) -> None:
     """
-    Render 'Clear history' and 'Export' buttons for a chat tab.
+    在聊天页渲染“清空对话”与“导出”按钮。
 
-    Args:
-        messages_key: Session-state key holding the message list.
-        export_title: Title used in the exported Markdown.
-        export_filename: Name for the download file.
-        include_sources: Whether the export includes source references.
-        extra_reset_keys: Additional session-state keys to reset on clear.
+    参数：
+        messages_key: 会话状态中存放消息列表的键。
+        export_title: 导出 Markdown 文档的标题。
+        export_filename: 下载文件名。
+        include_sources: 导出内容是否包含参考来源。
+        extra_reset_keys: 清空时需要额外重置的会话键。
     """
     messages = cast(list[ChatMessage], st.session_state.get(messages_key, []))
     if not messages:

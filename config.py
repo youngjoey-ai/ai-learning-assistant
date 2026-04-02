@@ -1,8 +1,8 @@
 """
-Application configuration module.
+应用配置模块。
 
-Centralizes all configurable parameters, supporting both local .env
-and Streamlit Cloud Secrets for seamless deployment across environments.
+集中管理所有可配置参数，同时支持本地 .env 与 Streamlit Cloud Secrets，
+以便在不同环境下无缝部署。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """LLM and embedding model configuration."""
+    """LLM 与向量嵌入模型配置。"""
 
     embedding_model: str = "text-embedding-v2"
     llm_model: str = "qwen-turbo"
@@ -27,7 +27,7 @@ class ModelConfig:
 
 @dataclass(frozen=True)
 class RAGConfig:
-    """Retrieval-Augmented Generation pipeline configuration."""
+    """检索增强生成（RAG）管道配置。"""
 
     chunk_size: int = 500
     chunk_overlap: int = 100
@@ -39,7 +39,7 @@ class RAGConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    """Top-level application configuration."""
+    """应用顶层配置。"""
 
     page_title: str = "我的AI学习助手"
     page_icon: str = "🤖"
@@ -53,12 +53,12 @@ class AppConfig:
 
 def resolve_api_key() -> str:
     """
-    Resolve the DashScope API key with priority:
-      1. Streamlit Secrets (cloud deployment)
-      2. Environment variable via .env (local development)
+    按优先级解析 DashScope API Key：
+      1. Streamlit Secrets（云端部署）
+      2. .env 环境变量（本地开发）
 
-    Raises:
-        SystemExit: If no API key is found, stops the Streamlit app.
+    异常：
+        SystemExit：当未找到 API Key 时，停止 Streamlit 应用。
     """
     load_dotenv()
 

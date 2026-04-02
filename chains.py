@@ -1,9 +1,9 @@
 """
-LangChain pipeline construction module.
+LangChain 管道构建模块。
 
-Provides factory helpers for:
-  - RAG question answering
-  - Knowledge-grounded agent task execution
+提供以下工厂方法：
+  - RAG 精准问答
+  - 基于知识库的 Agent 任务执行
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ RAG_SYSTEM_PROMPT = """\
 
 @dataclass
 class RAGResult:
-    """Structured result from the RAG pipeline."""
+    """RAG 管道的结构化结果。"""
 
     answer: str
     source_docs: list[Document]
@@ -72,7 +72,7 @@ class RAGResult:
 
 @dataclass
 class AgentRunDetails:
-    """Rich execution result for agent calls with observability payload."""
+    """Agent 执行的详细结果，包含可观测性指标和轨迹。"""
 
     answer: str
     metrics: dict[str, Any]
@@ -81,7 +81,7 @@ class AgentRunDetails:
 
 @dataclass
 class AgentToolkit:
-    """Toolset used by single-agent and workflow-agent runtimes."""
+    """单 Agent 与工作流 Agent 运行时的工具集合。"""
 
     knowledge_query: Callable[[str], str]
     knowledge_answer: Callable[[str], str]
@@ -100,7 +100,7 @@ _ALLOWED_OPERATORS: dict[type[ast.AST], Callable[[float, float], float]] = {
 
 
 def response_text(response: Any) -> str:
-    """Extract a plain displayable string from LangChain responses."""
+    """从 LangChain 响应中提取可显示的纯文本字符串。"""
     content = getattr(response, "content", response)
     if isinstance(content, str):
         return content
@@ -110,7 +110,7 @@ def response_text(response: Any) -> str:
 
 
 def format_retrieved_docs(docs: list[Document]) -> str:
-    """Format documents with source metadata for prompts and display."""
+    """将检索到的文档格式化为包含来源元数据的文本，便于用于提示与展示。"""
     formatted = []
     for idx, doc in enumerate(docs, 1):
         source = doc.metadata.get("source", "未知来源")
@@ -120,7 +120,7 @@ def format_retrieved_docs(docs: list[Document]) -> str:
 
 
 def build_rag_chain(retriever: BaseRetriever, llm: BaseChatModel):
-    """Build a callable RAG pipeline that returns answer + source docs."""
+    """构建可调用的 RAG 管道，返回答案与参考文档。"""
     prompt = ChatPromptTemplate.from_messages([
         ("system", RAG_SYSTEM_PROMPT),
         ("human", "【参考文档】\n{context}\n\n【用户问题】\n{question}"),
@@ -145,7 +145,7 @@ def _grounded_knowledge_answer(
     docs: list[Document],
     llm: BaseChatModel,
 ) -> str:
-    """Generate a grounded answer or summary from retrieved knowledge docs."""
+    """基于检索到的资料生成有依据的回答或总结。"""
     if not docs:
         return "知识库中无相关信息"
 
@@ -169,7 +169,7 @@ def _grounded_knowledge_answer(
 
 
 def _should_retry_with_grounded_answer(answer: str) -> bool:
-    """Detect generic agent replies that should be retried with retrieval."""
+    """检测需要回退至检索回答的通用 Agent 回复。"""
     retry_markers = (
         "请提供",
         "请先提供",
@@ -187,7 +187,7 @@ def _should_retry_with_grounded_answer(answer: str) -> bool:
 
 
 def _build_toolkit(retriever: BaseRetriever, llm: BaseChatModel) -> AgentToolkit:
-    """Create all tool functions with shared retriever/llm dependencies."""
+    """创建依赖同一检索器与 LLM 的工具函数集合。"""
 
     def knowledge_query(query: str) -> str:
         docs = retriever.invoke(query)
@@ -246,7 +246,7 @@ def _safe_calculate(expression: str) -> str:
 
 
 def build_agent(retriever: BaseRetriever, llm: BaseChatModel):
-    """Build a knowledge-grounded agent with retrieval-aware tools."""
+    """构建具备检索能力的知识库 Agent。"""
     toolkit = _build_toolkit(retriever, llm)
 
     tools = [
@@ -375,7 +375,7 @@ def run_agent_task(
     return_details: bool = False,
     timeout_seconds: float = 45.0,
 ) -> str | AgentRunDetails:
-    """Run single-agent flow with lightweight observability."""
+    """运行单 Agent 流程，并提供轻量可观测性信息。"""
     resolved_thread_id = thread_id or AGENT_THREAD_ID
     start = time.perf_counter()
     agent = build_agent(retriever, llm)

@@ -35,7 +35,7 @@ API_KEY = resolve_api_key()
 
 @st.cache_resource(show_spinner="正在初始化模型...")
 def init_models(api_key: str):
-    """Initialise embeddings and chat model once per app session."""
+    """在单次应用会话中初始化嵌入与聊天模型。"""
     os.environ["DASHSCOPE_API_KEY"] = api_key
     embeddings = DashScopeEmbeddings(model=app_config.model.embedding_model)
     llm = ChatOpenAI(
@@ -68,7 +68,7 @@ init_session_key("clear_success_message", "")
 
 
 def inject_responsive_styles() -> None:
-    """Add responsive typography so headings stay tidy on smaller screens."""
+    """注入响应式样式，使标题在小屏设备上更易阅读。"""
     st.markdown(
         """
         <style>
@@ -148,7 +148,7 @@ def inject_responsive_styles() -> None:
 
 
 def render_page_title(icon: str, title_html: str) -> None:
-    """Render a responsive page title with cleaner mobile wrapping."""
+    """渲染响应式页面标题，提升移动端换行效果。"""
     st.markdown(
         f"""
         <div class="app-page-title">
@@ -161,7 +161,7 @@ def render_page_title(icon: str, title_html: str) -> None:
 
 
 def render_section_title(icon: str, title_html: str) -> None:
-    """Render a responsive section heading with controlled break points."""
+    """渲染响应式分区标题，控制断行位置。"""
     st.markdown(
         f"""
         <div class="app-section-title">
@@ -174,7 +174,7 @@ def render_section_title(icon: str, title_html: str) -> None:
 
 
 def clear_knowledge_base() -> None:
-    """Clear the active knowledge base, with a fallback for older manager versions."""
+    """清空当前知识库，并兼容旧版本管理器的清理逻辑。"""
     clear_method = getattr(vector_store_manager, "clear", None)
     if callable(clear_method):
         clear_method()
